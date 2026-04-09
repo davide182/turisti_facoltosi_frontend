@@ -21,7 +21,7 @@ import {
   feedbackService,
   utenteService,
 } from '@/lib/api';
-import type { Abitazione, Prenotazione, Utente } from '@/types';
+import type { Abitazione, Prenotazione, Utente, Host } from '@/types';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,12 +37,17 @@ interface UtenteStatistiche {
   numPrenotazioni: number;
 }
 
+// interfaccia per host con prenotazioni mensili
+interface HostConMensili extends Host {
+  prenotazioniUltimoMese?: number;
+}
+
 const StatistichePage = () => {
   const [stats, setStats] = useState({
     abitazionePiuGettonata: null as Abitazione | null,
     mediaPostiLetto: 0,
-    superHosts: [] as any[],
-    hostsConPiuPrenotazioni: [] as any[],
+    superHosts: [] as Host[],
+    hostsConPiuPrenotazioni: [] as HostConMensili[],
     top5Utenti: [] as UtenteStatistiche[],
     prenotazioniUltimoMese: 0,
     feedbackAltoPunteggio: 0,
@@ -131,6 +136,15 @@ const StatistichePage = () => {
     }
   };
 
+  // funzione helper per estrarre i dati dalle risposte API
+  const extractData = (response: any): any => {
+    if (!response || !response.data) return null;
+    // Se la risposta ha la struttura { status, data }
+    if (response.data.data !== undefined) return response.data.data;
+    // Se la risposta è diretta
+    return response.data;
+  };
+
   const loadStats = async () => {
     try {
       setError(null);
@@ -159,7 +173,8 @@ const StatistichePage = () => {
           console.warn('Errore super hosts:', err.message);
           return { data: { data: [] } };
         }),
-        hostService.getHostsConPiuPrenotazioni().catch((err) => {
+        // CORREZIONE: usa getTopHostsUltimoMese invece di getHostsConPiuPrenotazioni
+        hostService.getTopHostsUltimoMese().catch((err) => {
           console.warn('Errore hosts con più prenotazioni:', err.message);
           return { data: { data: [] } };
         }),
@@ -177,7 +192,7 @@ const StatistichePage = () => {
         }),
       ]);
 
-      console.log('Risposte API DETTAGLIATE:', {
+      console.log('Risposte API:', {
         abitazionePiuGettonata: abitazionePiuGettonataRes.data,
         mediaPostiLetto: mediaPostiLettoRes.data,
         superHosts: superHostsRes.data,
@@ -187,102 +202,62 @@ const StatistichePage = () => {
         feedbackAltoPunteggio: feedbackAltoRes.data,
       });
 
-      const getNormalizedData = (response: any, dataKey: string = 'data') => {
-        if (!response || !response.data) return null;
-        
-        // se c'è un campo 'data' con i dati
-        if (response.data[dataKey] !== undefined) {
-          return response.data[dataKey];
-        }
-        
-        // se i dati sono direttamente nella risposta
-        return response.data;
-      };
-
-      // calcola media posti letto manualmente se l'API non funziona
+      // Estrai i dati
+      const abitazionePiuGettonata = extractData(abitazionePiuGettonataRes);
+      const superHosts = extractData(superHostsRes) || [];
+      const hostsConPiuPrenotazioni = extractData(hostsPrenotazioniRes) || [];
+      let top5Utenti = extractData(top5UtentiRes) || [];
+      
+      // Estrai media posti letto
       let mediaPostiLetto = 0;
-      try {
-        console.log('Dati grezzi media posti letto API:', mediaPostiLettoRes.data);
-        
-        //estrai direttamente dai dati normalizzati
-        const mediaData = getNormalizedData(mediaPostiLettoRes, 'mediaPostiLetto');
-        console.log('Dati media posti letto normalizzati:', mediaData);
-        
-        // funzione helper per estrarre numero da vari formati
-        const extractNumber = (data: any): number => {
-          if (typeof data === 'number') return data;
-          if (typeof data === 'string') return parseFloat(data) || 0;
-          if (data && typeof data === 'object') {
-
-            if ('mediaPostiLetto' in data) return extractNumber(data.mediaPostiLetto);
-            if ('value' in data) return extractNumber(data.value);
-            if ('data' in data) return extractNumber(data.data);
-            if ('average' in data) return extractNumber(data.average);
-            if ('media' in data) return extractNumber(data.media);
-            if ('avg' in data) return extractNumber(data.avg);
-            // se è un array, calcola la media
-            if (Array.isArray(data)) {
-              const numbers = data.filter(item => typeof item === 'number');
-              if (numbers.length > 0) {
-                return numbers.reduce((sum, num) => sum + num, 0) / numbers.length;
-              }
-              return 0;
-            }
-          }
-          return 0;
-        };
-        
-        mediaPostiLetto = extractNumber(mediaData);
-        console.log('Media posti letto estratta:', mediaPostiLetto);
-        
-        if (mediaPostiLetto === 0) {
-          console.log('Media posti letto è 0, calcolo manuale dalle abitazioni...');
-          const abitazioniRes = await abitazioneService.getAll();
-          const abitazioni = getNormalizedData(abitazioniRes) || [];
-          console.log('Abitazioni trovate per calcolo manuale:', abitazioni.length);
-          
-          if (abitazioni.length > 0) {
-            const abitazioniValide = abitazioni.filter((abitazione: Abitazione) => 
-              abitazione && typeof abitazione.numeroPostiLetto === 'number'
-            );
-            
-            if (abitazioniValide.length > 0) {
-              const sommaPostiLetto = abitazioniValide.reduce((sum: number, abitazione: Abitazione) => 
-                sum + (abitazione.numeroPostiLetto || 0), 0);
-              mediaPostiLetto = sommaPostiLetto / abitazioniValide.length;
-              console.log('Media calcolata manualmente:', mediaPostiLetto, 'da', abitazioniValide.length, 'abitazioni valide');
-            } else {
-              console.log('Nessuna abitazione valida trovata per calcolare la media');
-            }
-          } else {
-            console.log('Nessuna abitazione trovata nel database');
-          }
-        }
-        
-        console.log('Media posti letto finale:', mediaPostiLetto);
-      } catch (err) {
-        console.error('Errore nel calcolo media posti letto:', err);
-        mediaPostiLetto = 0;
+      const mediaData = mediaPostiLettoRes.data;
+      if (mediaData?.mediaPostiLetto !== undefined) {
+        mediaPostiLetto = typeof mediaData.mediaPostiLetto === 'number' 
+          ? mediaData.mediaPostiLetto 
+          : parseFloat(mediaData.mediaPostiLetto) || 0;
+      } else if (mediaData?.data?.mediaPostiLetto !== undefined) {
+        mediaPostiLetto = typeof mediaData.data.mediaPostiLetto === 'number'
+          ? mediaData.data.mediaPostiLetto
+          : parseFloat(mediaData.data.mediaPostiLetto) || 0;
       }
 
-      // calcola top 5 utenti manualmente se l'API non funziona
-      let top5UtentiData: UtenteStatistiche[] = getNormalizedData(top5UtentiRes) || [];
-      if (!Array.isArray(top5UtentiData) || top5UtentiData.length === 0) {
+      // Estrai numero prenotazioni ultimo mese
+      let prenotazioniUltimoMese = 0;
+      const prenotazioniData = prenotazioniUltimoMeseRes.data;
+      if (prenotazioniData?.count !== undefined) {
+        prenotazioniUltimoMese = typeof prenotazioniData.count === 'number' 
+          ? prenotazioniData.count 
+          : prenotazioniData.count;
+      } else if (Array.isArray(prenotazioniData?.data)) {
+        prenotazioniUltimoMese = prenotazioniData.data.length;
+      } else if (Array.isArray(prenotazioniData)) {
+        prenotazioniUltimoMese = prenotazioniData.length;
+      }
+
+      // Estrai numero feedback alto punteggio
+      let feedbackAltoPunteggio = 0;
+      const feedbackData = feedbackAltoRes.data;
+      if (feedbackData?.count !== undefined) {
+        feedbackAltoPunteggio = typeof feedbackData.count === 'number' 
+          ? feedbackData.count 
+          : feedbackData.count;
+      } else if (Array.isArray(feedbackData?.data)) {
+        feedbackAltoPunteggio = feedbackData.data.length;
+      } else if (Array.isArray(feedbackData)) {
+        feedbackAltoPunteggio = feedbackData.length;
+      }
+
+      // Se top5Utenti è vuoto, prova a calcolare manualmente
+      if (!top5Utenti || top5Utenti.length === 0) {
         console.log('API top 5 utenti ha restituito array vuoto, calcolo manuale...');
-        
         try {
-          // ottieni tutte le prenotazioni dell'ultimo mese
           const prenotazioniRes = await prenotazioneService.getPrenotazioniUltimoMese();
-          const prenotazioniUltimoMese = getNormalizedData(prenotazioniRes) || [];
-          console.log('Prenotazioni ultimo mese per calcolo:', prenotazioniUltimoMese);
+          const prenotazioniUltimoMese = extractData(prenotazioniRes) || [];
           
           if (prenotazioniUltimoMese.length > 0) {
-            // ottieni tutti gli utenti
             const utentiRes = await utenteService.getAll();
-            const utenti = getNormalizedData(utentiRes) || [];
-            console.log('Utenti per calcolo:', utenti);
+            const utenti = extractData(utentiRes) || [];
             
-            // calcola giorni prenotati per utente
             const utentiMap = new Map<number, UtenteStatistiche>();
             
             prenotazioniUltimoMese.forEach((prenotazione: Prenotazione) => {
@@ -307,12 +282,12 @@ const StatistichePage = () => {
               }
             });
             
-            top5UtentiData = Array.from(utentiMap.values())
+            top5Utenti = Array.from(utentiMap.values())
               .sort((a, b) => b.giorniTotali - a.giorniTotali)
               .slice(0, 5);
             
             if (utenti.length > 0) {
-              top5UtentiData = top5UtentiData.map((stat: UtenteStatistiche) => {
+              top5Utenti = top5Utenti.map((stat: UtenteStatistiche) => {
                 const utente = utenti.find((u: Utente) => u.idUtente === stat.idUtente);
                 return {
                   ...stat,
@@ -322,48 +297,31 @@ const StatistichePage = () => {
                 };
               });
             }
-            
-            console.log('Top 5 utenti calcolato manualmente:', top5UtentiData);
           }
         } catch (err) {
           console.error('Errore nel calcolo manuale top 5 utenti:', err);
-          top5UtentiData = [];
         }
       }
 
-      // estrai numero prenotazioni ultimo mese
-      let prenotazioniUltimoMese = 0;
-      const prenotazioniData = getNormalizedData(prenotazioniUltimoMeseRes, 'count');
-      if (typeof prenotazioniData === 'number') {
-        prenotazioniUltimoMese = prenotazioniData;
-      } else if (Array.isArray(prenotazioniData)) {
-        prenotazioniUltimoMese = prenotazioniData.length;
-      } else {
-        prenotazioniUltimoMese = 0;
-      }
-
-      // estrai numero feedback alto punteggio
-      let feedbackAltoPunteggio = 0;
-      const feedbackData = getNormalizedData(feedbackAltoRes, 'count');
-      if (typeof feedbackData === 'number') {
-        feedbackAltoPunteggio = feedbackData;
-      } else if (Array.isArray(feedbackData)) {
-        feedbackAltoPunteggio = feedbackData.length;
-      } else {
-        feedbackAltoPunteggio = 0;
-      }
-
       setStats({
-        abitazionePiuGettonata: getNormalizedData(abitazionePiuGettonataRes) as Abitazione | null,
+        abitazionePiuGettonata,
         mediaPostiLetto,
-        superHosts: getNormalizedData(superHostsRes) || [],
-        hostsConPiuPrenotazioni: getNormalizedData(hostsPrenotazioniRes) || [],
-        top5Utenti: top5UtentiData,
+        superHosts,
+        hostsConPiuPrenotazioni,
+        top5Utenti: top5Utenti || [],
         prenotazioniUltimoMese,
         feedbackAltoPunteggio,
       });
       
-      console.log('Statistiche finali:', stats);
+      console.log('Statistiche finali:', {
+        abitazionePiuGettonata,
+        mediaPostiLetto,
+        superHosts: superHosts.length,
+        hostsConPiuPrenotazioni: hostsConPiuPrenotazioni.length,
+        top5Utenti: top5Utenti?.length,
+        prenotazioniUltimoMese,
+        feedbackAltoPunteggio,
+      });
       
     } catch (error) {
       console.error('Errore nel caricamento statistiche:', error);
@@ -438,7 +396,7 @@ const StatistichePage = () => {
         </Alert>
       )}
 
-      {/* NUOVA SEZIONE: Ricerca ultima prenotazione per ID utente */}
+      {/* Sezione Ricerca ultima prenotazione per ID utente */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -455,12 +413,16 @@ const StatistichePage = () => {
             <div className="flex gap-2">
               <div className="flex-1">
                 <Input
-                  type="number"
+                  type="text"
                   placeholder="Inserisci ID utente (es: 1, 2, 3...)"
                   value={idUtenteRicerca}
-                  onChange={(e) => setIdUtenteRicerca(e.target.value)}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value === '' || /^\d+$/.test(value)) {
+                      setIdUtenteRicerca(value);
+                    }
+                  }}
                   className="w-full"
-                  min="1"
                 />
               </div>
               <Button 
@@ -545,7 +507,6 @@ const StatistichePage = () => {
                   </div>
                 </div>
 
-                {/* Informazioni aggiuntive */}
                 <div className="mt-4 pt-4 border-t">
                   <div className="flex items-center gap-2 text-sm text-gray-600">
                     <Clock className="h-4 w-4" />
@@ -643,7 +604,7 @@ const StatistichePage = () => {
               Host con più prenotazioni (ultimo mese)
             </CardTitle>
             <CardDescription>
-              Host più attivi nell'ultimo mese
+              Host più attivi nell'ultimo mese (solo prenotazioni COMPLETATE)
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -654,12 +615,14 @@ const StatistichePage = () => {
                     <div>
                       <h3 className="font-semibold">{host.codiceHost || `Host #${host.idUtente}`}</h3>
                       <p className="text-sm text-gray-600">
-                        {host.isSuperHost ? 'Super Host' : 'Host'}
+                        {host.isSuperHost ? '⭐ Super Host' : 'Host'}
                       </p>
                     </div>
                     <div className="text-right">
-                      <div className="font-bold text-lg">{host.totPrenotazioni || 0}</div>
-                      <div className="text-sm text-gray-600">prenotazioni</div>
+                      <div className="font-bold text-lg text-blue-600">
+                        {host.prenotazioniUltimoMese || host.totPrenotazioni || 0}
+                      </div>
+                      <div className="text-sm text-gray-600">prenotazioni (mese)</div>
                     </div>
                   </div>
                 </div>

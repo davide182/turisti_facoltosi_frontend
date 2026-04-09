@@ -1,3 +1,12 @@
+export interface Host {
+  idUtente: number;
+  codiceHost: string;
+  isSuperHost: boolean;
+  dataDiventatoSuper: string | null;
+  totPrenotazioni: number;
+  prenotazioniUltimoMese?: number;
+}
+
 export interface Utente {
   idUtente: number;
   nome: string;
@@ -14,26 +23,12 @@ export interface Abitazione {
   indirizzo: string;
   numeroLocali: number;
   numeroPostiLetto: number;
-  piano?: number;
+  piano: number | null;
   prezzoPerNotte: number;
   dataInizioDisponibilita: string;
   dataFineDisponibilita: string;
   disponibile: boolean;
 }
-
-export interface Host {
-  idUtente: number;
-  codiceHost: string;
-  isSuperHost: boolean;
-  dataDiventatoSuper?: string;
-  totPrenotazioni: number;
-}
-
-export type StatoPrenotazione = //type per essere più leggero e manipolarlo in sviluppo con API REST 
-  | 'IN_ATTESA' 
-  | 'CONFERMATA' 
-  | 'CANCELLATA' 
-  | 'COMPLETATA';
 
 export interface Prenotazione {
   idPrenotazione: number;
@@ -41,7 +36,7 @@ export interface Prenotazione {
   idUtente: number;
   dataInizioPrenotazione: string;
   dataFinePrenotazione: string;
-  stato: StatoPrenotazione;
+  stato: 'IN_ATTESA' | 'CONFERMATA' | 'CANCELLATA' | 'COMPLETATA';
   prezzoTotale: number;
   cancellataDalUtente: boolean;
   dataPrenotazione?: string;
@@ -56,27 +51,14 @@ export interface Feedback {
   dataCreazione?: string;
 }
 
-export interface TopUtente {
-  idUtente: number;
-  nome: string;
-  cognome: string;
-  email: string;
-  giorniTotali: number;
-  numPrenotazioni: number;
-}
-
-export interface Statistiche {
-  abitazionePiuGettonata?: Abitazione;
-  mediaPostiLetto: number;
-  superHosts: Host[];
-  hostsConPiuPrenotazioni: Host[];
-  top5Utenti: TopUtente[];
-}
-
 export interface ApiResponse<T> {
   status: string;
   message?: string;
-  data: T;
+  data?: T;
   count?: number;
-  [key: string]: any;
+  id?: number;
+}
+
+export interface HostConPrenotazioniMensili extends Host {
+  prenotazioniUltimoMese: number;
 }

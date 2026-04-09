@@ -1,4 +1,5 @@
 import axios from 'axios';
+import type { ApiResponse } from '../types';
 
 const API_BASE_URL = 'http://localhost:8080/api';
 
@@ -10,43 +11,39 @@ const api = axios.create({
   timeout: 10000,
 });
 
-// Interceptor per gestire strutture di risposta diverse
+// Interceptor per normalizzare le risposte del backend
 api.interceptors.response.use(
   (response) => {
+    // Se la risposta ha già la struttura { status, data }, la lascio invariata
     if (response.data && typeof response.data === 'object') {
-      // cerca vari campi comuni che potrebbero contenere i dati
       if ('data' in response.data) {
+        return response;
+      }
+      if (Array.isArray(response.data)) {
         return {
           ...response,
-          data: response.data
-        };
-      } else if ('content' in response.data) {
-        return {
-          ...response,
-          data: { data: response.data.content }
-        };
-      } else if ('items' in response.data) {
-        return {
-          ...response,
-          data: { data: response.data.items }
-        };
-      } else if ('prenotazioni' in response.data) {
-        return {
-          ...response,
-          data: { data: response.data.prenotazioni }
-        };
-      } else if ('utenti' in response.data) {
-        return {
-          ...response,
-          data: { data: response.data.utenti }
+          data: { status: 'success', data: response.data, count: response.data.length }
         };
       }
-      return {//assumiamo che l'intera risposta sia i dati
-        ...response,
-        data: { data: response.data }
-      };
+      if ('content' in response.data && Array.isArray(response.data.content)) {
+        return {
+          ...response,
+          data: { status: 'success', data: response.data.content, totalElements: response.data.totalElements }
+        };
+      }
+      if ('items' in response.data && Array.isArray(response.data.items)) {
+        return {
+          ...response,
+          data: { status: 'success', data: response.data.items, count: response.data.items.length }
+        };
+      }
+      if ('mediaPostiLetto' in response.data) {
+        return {
+          ...response,
+          data: { status: 'success', data: response.data }
+        };
+      }
     }
-    
     return response;
   },
   (error) => {
@@ -57,16 +54,17 @@ api.interceptors.response.use(
         error.message = 'Errore interno del server: ' + (error.response.data?.message || 'Controlla i log del backend');
       } else if (error.response.data?.message) {
         error.message = error.response.data.message;
+      } else if (error.response.data?.error) {
+        error.message = error.response.data.error + ': ' + (error.response.data.message || '');
       }
     } else if (error.request) {
-      error.message = 'Nessuna risposta dal server. Il backend è in esecuzione?';
+      error.message = 'Nessuna risposta dal server. Il backend è in esecuzione su http://localhost:8080?';
     }
     
     return Promise.reject(error);
   }
 );
 
-// servizi per Utente
 export const utenteService = {
   getAll: () => api.get('/utenti'),
   getById: (id: number) => api.get(`/utenti/${id}`),
@@ -76,7 +74,6 @@ export const utenteService = {
   enable: (id: number) => api.put(`/utenti/${id}/enable`),
 };
 
-// servizi per Abitazione
 export const abitazioneService = {
   getAll: () => api.get('/abitazioni'),
   getById: (id: number) => api.get(`/abitazioni/${id}`),
@@ -90,7 +87,6 @@ export const abitazioneService = {
   getMediaPostiLetto: () => api.get('/abitazioni/statistiche/media-posti-letto'),
 };
 
-// servizi per Host
 export const hostService = {
   getAll: () => api.get('/host'),
   getById: (id: number) => api.get(`/host/${id}`),
@@ -98,17 +94,16 @@ export const hostService = {
   promoteToHost: (idUtente: number) => api.post(`/host/promuovi/${idUtente}`),
   isHost: (idUtente: number) => api.get(`/host/verifica/${idUtente}`),
   getSuperHosts: () => api.get('/host/statistiche/super'),
-  getHostsConPiuPrenotazioni: () => api.get('/host/statistiche/prenotazioni-ultimo-mese'),
+  getTopHostsUltimoMese: () => api.get('/host/statistiche/prenotazioni-ultimo-mese'),
   checkAndPromoteToSuperHost: (idUtente: number) => api.post(`/host/verifica-super/${idUtente}`),
 };
 
-// servizi per Prenotazione
 export const prenotazioneService = {
   getAll: () => api.get('/prenotazioni'),
   getById: (id: number) => api.get(`/prenotazioni/${id}`),
   create: (data: any) => api.post('/prenotazioni', data),
   update: (id: number, data: any) => api.put(`/prenotazioni/${id}`, data),
-  updateStato: (id: number, stato: string) => api.put(`/prenotazioni/${id}/stato`, { stato }),
+  updateStato: (id: number, stato: string) => api.put(`/prenotazioni/${id}/stato`, stato),
   cancel: (id: number) => api.put(`/prenotazioni/${id}/cancella`),
   getByUtente: (idUtente: number) => api.get(`/prenotazioni/utente/${idUtente}`),
   getByAbitazione: (idAbitazione: number) => api.get(`/prenotazioni/abitazione/${idAbitazione}`),
@@ -118,7 +113,6 @@ export const prenotazioneService = {
   getTop5UtentiGiorniPrenotati: () => api.get('/prenotazioni/statistiche/utenti-top-5'),
 };
 
-// servizi per Feedback
 export const feedbackService = {
   getAll: () => api.get('/feedback'),
   getById: (id: number) => api.get(`/feedback/${id}`),
@@ -132,7 +126,6 @@ export const feedbackService = {
   getMediaPunteggioHost: (idUtente: number) => api.get(`/feedback/statistiche/host/${idUtente}/media-punteggio`),
 };
 
-// funzione di test per verificare la connessione
 export const testBackendConnection = async () => {
   try {
     const response = await api.get('/utenti');

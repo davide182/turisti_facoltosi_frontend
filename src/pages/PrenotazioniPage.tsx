@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Plus, Calendar, AlertCircle, RefreshCw, Edit, Trash2 } from 'lucide-react';
 import DataTable from '../components/DataTable';
-import { prenotazioneService, abitazioneService, utenteService } from '@/lib/api';
+import { prenotazioneService, abitazioneService, utenteService, hostService } from '@/lib/api';
 import type { Prenotazione, Abitazione, Utente } from '@/types';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -142,6 +142,15 @@ const PrenotazioniPage = () => {
       };
       
       await prenotazioneService.update(selectedPrenotazione.idPrenotazione, formattedData);
+
+      if (formattedData.stato === STATO_PRENOTAZIONE.COMPLETATA && abitazione) {
+        try {
+          await hostService.checkAndPromoteToSuperHost(abitazione.idUtente);
+        } catch (err) {
+          console.warn('Verifica SuperHost non riuscita (non bloccante):', err);
+        }
+      }
+
       await loadData();
       setDialogOpen(false);
       setSelectedPrenotazione(null);
@@ -312,9 +321,6 @@ const PrenotazioniPage = () => {
       key: 'azioni',
       header: 'Azioni',
       render: (value: any, prenotazione: Prenotazione) => {
-        // LOGICA SEMPLIFICATA: Mostra "Modifica" e "Cancella" solo per stati attivi
-        // stati attivi: IN_ATTESA e CONFERMATA
-        // stati finali: COMPLETATA e CANCELLATA (nessuna azione)
         
         const isStatoAttivo = 
           prenotazione.stato === STATO_PRENOTAZIONE.IN_ATTESA || 
